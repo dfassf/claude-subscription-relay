@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      dockerfile: Dockerfile.api
+    container_name: claude-relay-api
+    ports:
+      - "8000:8000"
+    volumes:
+      # 호스트 Docker 소켓 마운트 (docker exec 사용)
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 작업 파일 공유
+      - workspace:/workspace
+    environment:
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
+      - WORKSPACE_BASE=/workspace
+    depends_on:
+      - claude
+    restart: unless-stopped
+
+  claude:
+    build: .
+    image: claude-sandbox
+    container_name: claude-sandbox
+    environment:
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
+    volumes:
+      # credential 영속 저장
+      - claude-creds:/root/.claude
+      # 작업 파일 공유
+      - workspace:/workspace
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+
+volumes:
+  claude-creds:
+  workspace:
