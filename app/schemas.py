@@ -27,6 +27,7 @@ class TaskResult(BaseModel):
     status: TaskStatus
     result: str | None = None
     error: str | None = None
+    duration: float | None = None
 
 
 class HealthResponse(BaseModel):

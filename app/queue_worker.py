@@ -9,7 +9,7 @@ from app.schemas import TaskStatus
 
 
 class Task:
-    __slots__ = ("task_id", "prompt", "system_prompt", "output_format", "timeout", "files", "status", "result", "error", "completed_at")
+    __slots__ = ("task_id", "prompt", "system_prompt", "output_format", "timeout", "files", "status", "result", "error", "completed_at", "started_at", "duration")
 
     def __init__(
         self,
@@ -29,7 +29,9 @@ class Task:
         self.status = TaskStatus.queued
         self.result: str | None = None
         self.error: str | None = None
+        self.started_at: float | None = None
         self.completed_at: float | None = None
+        self.duration: float | None = None
 
 
 class QueueWorker:
@@ -44,6 +46,7 @@ class QueueWorker:
             task = await self._queue.get()
             self._current_task_id = task.task_id
             task.status = TaskStatus.running
+            task.started_at = time.time()
             try:
                 task.result = await run_claude(
                     task.prompt,
@@ -58,6 +61,7 @@ class QueueWorker:
                 task.status = TaskStatus.failed
             finally:
                 task.completed_at = time.time()
+                task.duration = round(task.completed_at - task.started_at, 2)
                 self._current_task_id = None
                 self._queue.task_done()
 

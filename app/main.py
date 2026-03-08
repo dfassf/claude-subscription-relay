@@ -109,6 +109,7 @@ async def get_task(task_id: str):
         status=task.status,
         result=task.result,
         error=task.error,
+        duration=task.duration,
     )
 
 
