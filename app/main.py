@@ -4,12 +4,20 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 
 from app.claude_runner import check_auth, run_login
 from app.config import settings
 from app.queue_worker import Task, worker
 from app.schemas import AskRequest, AskResponse, HealthResponse, TaskResult
+
+
+async def verify_api_key(request: Request):
+    if not settings.api_key:
+        return  # API 키 미설정 시 인증 스킵 (로컬 개발용)
+    key = request.headers.get("X-API-Key")
+    if key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid API key")
 
 
 @asynccontextmanager
@@ -28,7 +36,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Claude Sandbox API", version="0.1.0", lifespan=lifespan)
 
 
-@app.post("/login")
+@app.post("/login", dependencies=[Depends(verify_api_key)])
 async def login():
     """OAuth 로그인 URL을 반환한다. 브라우저에서 열어 인증 완료."""
     try:
@@ -38,13 +46,13 @@ async def login():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/auth")
+@app.get("/auth", dependencies=[Depends(verify_api_key)])
 async def auth():
     """컨테이너의 Claude 인증 상태를 확인한다."""
     return await check_auth()
 
 
-@app.post("/ask", response_model=AskResponse)
+@app.post("/ask", response_model=AskResponse, dependencies=[Depends(verify_api_key)])
 async def ask(req: AskRequest):
     """텍스트 프롬프트를 큐에 넣고 task_id를 반환한다."""
     task = Task(
@@ -57,7 +65,7 @@ async def ask(req: AskRequest):
     return AskResponse(task_id=task.task_id)
 
 
-@app.post("/ask/file", response_model=AskResponse)
+@app.post("/ask/file", response_model=AskResponse, dependencies=[Depends(verify_api_key)])
 async def ask_with_file(
     prompt: str = Form(...),
     system_prompt: str | None = Form(None),
@@ -90,7 +98,7 @@ async def ask_with_file(
     return AskResponse(task_id=task.task_id)
 
 
-@app.get("/task/{task_id}", response_model=TaskResult)
+@app.get("/task/{task_id}", response_model=TaskResult, dependencies=[Depends(verify_api_key)])
 async def get_task(task_id: str):
     """작업 상태와 결과를 조회한다."""
     task = worker.get_task(task_id)

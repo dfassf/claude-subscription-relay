@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     # 완료된 작업 보관 시간 (초)
     task_retention: int = 3600
 
+    # API 인증 키
+    api_key: str = ""
+
     model_config = {"env_file": ".env", "env_prefix": ""}
 
     def get_oauth_token(self) -> str | None:
