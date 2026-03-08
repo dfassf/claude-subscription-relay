@@ -34,14 +34,18 @@ async def run_claude(
                 file_names.append(f"/workspace/{workspace_name}/{f.name}")
             prompt = f"다음 파일을 참고해서 답해줘: {', '.join(file_names)}\n\n{prompt}"
 
+        # 프롬프트를 파일로 저장 후 stdin으로 전달 (CLI 인자 노출 방지)
+        prompt_file = workspace / ".prompt.txt"
+        prompt_file.write_text(prompt, encoding="utf-8")
+
         # docker exec 명령 조립
-        cmd = ["docker", "exec"]
+        cmd = ["docker", "exec", "-i"]
         if token:
             cmd.extend(["-e", f"CLAUDE_CODE_OAUTH_TOKEN={token}"])
         cmd.extend([
             "-w", f"/workspace/{workspace_name}",
             CONTAINER_NAME,
-            "claude", "-p", prompt,
+            "claude", "-p", "-",
             "--output-format", output_format,
         ])
 
@@ -50,12 +54,13 @@ async def run_claude(
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
 
         stdout, stderr = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout
+            proc.communicate(input=prompt.encode()), timeout=timeout
         )
 
         if proc.returncode != 0:
