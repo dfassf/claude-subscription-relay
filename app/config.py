@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # API 인증 키
     api_key: str = ""
 
+    # Telegram 봇 (빈 문자열이면 비활성)
+    telegram_bot_token: str = ""
+    telegram_chat_id: int = 0
+
     model_config = {"env_file": ".env", "env_prefix": ""}
 
     def get_oauth_token(self) -> str | None:

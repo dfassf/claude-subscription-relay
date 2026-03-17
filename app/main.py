@@ -10,6 +10,7 @@ from app.claude_runner import check_auth, run_login
 from app.config import settings
 from app.queue_worker import Task, worker
 from app.schemas import AskRequest, AskResponse, HealthResponse, TaskResult
+from app.telegram_bot import get_bot
 
 
 async def verify_api_key(request: Request):
@@ -28,7 +29,17 @@ async def lifespan(app: FastAPI):
     # 큐 워커 + 정리 루프 백그라운드 실행
     worker_task = asyncio.create_task(worker.start())
     cleanup_task = asyncio.create_task(worker.cleanup_loop())
+
+    # Telegram 봇 (설정이 있으면 시작)
+    telegram_task = None
+    tg_bot = get_bot()
+    if tg_bot:
+        telegram_task = asyncio.create_task(tg_bot.start())
+
     yield
+
+    if telegram_task:
+        telegram_task.cancel()
     worker_task.cancel()
     cleanup_task.cancel()
 

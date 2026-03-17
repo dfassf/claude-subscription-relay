@@ -10,5 +10,9 @@ WORKDIR /workspace
 # credential 디렉토리
 RUN mkdir -p /root/.claude
 
-# 상주 컨테이너로 유지 (sleep infinity)
+# 시작 시 .claude.json 자동 복원
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["sleep", "infinity"]

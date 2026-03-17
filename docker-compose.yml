@@ -14,6 +14,8 @@ services:
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - API_KEY=${API_KEY:-}
       - WORKSPACE_BASE=/workspace
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-0}
     depends_on:
       - claude
     restart: unless-stopped
@@ -22,8 +24,6 @@ services:
     build: .
     image: claude-sandbox
     container_name: claude-sandbox
-    environment:
-      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
     volumes:
       # credential 영속 저장
       - claude-creds:/root/.claude

@@ -1,15 +1,19 @@
 import asyncio
+import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from app.claude_runner import run_claude
 from app.config import settings
 from app.schemas import TaskStatus
 
+logger = logging.getLogger(__name__)
+
 
 class Task:
-    __slots__ = ("task_id", "prompt", "system_prompt", "output_format", "timeout", "files", "status", "result", "error", "completed_at", "started_at", "duration")
+    __slots__ = ("task_id", "prompt", "system_prompt", "output_format", "timeout", "files", "status", "result", "error", "completed_at", "started_at", "duration", "on_complete")
 
     def __init__(
         self,
@@ -32,6 +36,7 @@ class Task:
         self.started_at: float | None = None
         self.completed_at: float | None = None
         self.duration: float | None = None
+        self.on_complete: Callable[["Task"], Awaitable[None]] | None = None
 
 
 class QueueWorker:
@@ -63,6 +68,11 @@ class QueueWorker:
                 task.completed_at = time.time()
                 task.duration = round(task.completed_at - task.started_at, 2)
                 self._current_task_id = None
+                if task.on_complete:
+                    try:
+                        await task.on_complete(task)
+                    except Exception as e:
+                        logger.error("Task callback 실패: %s", e)
                 self._queue.task_done()
 
     async def cleanup_loop(self):
