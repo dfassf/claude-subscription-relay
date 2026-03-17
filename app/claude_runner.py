@@ -15,14 +15,21 @@ async def run_claude(
     output_format: str = "text",
     timeout: int | None = None,
     files: list[Path] | None = None,
-) -> str:
+    resume_session: str | None = None,
+    workspace_dir: str | None = None,
+) -> tuple[str, str | None]:
     """상주 컨테이너에 docker exec로 Claude CLI를 실행하고 응답을 반환한다."""
 
     timeout = timeout or settings.claude_timeout
     token = settings.get_oauth_token()
 
-    # 요청별 임시 workspace 생성 (호스트의 workspace/ 아래)
-    workspace = Path(tempfile.mkdtemp(dir=settings.workspace_base))
+    # 고정 workspace가 지정되면 사용, 아니면 임시 생성
+    use_temp = workspace_dir is None
+    if use_temp:
+        workspace = Path(tempfile.mkdtemp(dir=settings.workspace_base))
+    else:
+        workspace = Path(settings.workspace_base) / workspace_dir
+        workspace.mkdir(parents=True, exist_ok=True)
     workspace_name = workspace.name
 
     try:
@@ -46,8 +53,11 @@ async def run_claude(
             "-w", f"/workspace/{workspace_name}",
             CONTAINER_NAME,
             "claude", "-p", "-",
-            "--output-format", output_format,
+            "--output-format", "json",
         ])
+
+        if resume_session:
+            cmd.extend(["--resume", resume_session])
 
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
@@ -67,10 +77,24 @@ async def run_claude(
             error_msg = stderr.decode().strip() or f"exit code {proc.returncode}"
             raise RuntimeError(f"Claude 실행 실패: {error_msg}")
 
-        return stdout.decode().strip()
+        raw = stdout.decode().strip()
+
+        # JSON 출력에서 session_id와 결과 텍스트 추출
+        import json as _json
+        session_id = None
+        result_text = raw
+        try:
+            data = _json.loads(raw)
+            session_id = data.get("session_id")
+            result_text = data.get("result", raw)
+        except (_json.JSONDecodeError, TypeError):
+            pass
+
+        return result_text, session_id
 
     finally:
-        shutil.rmtree(workspace, ignore_errors=True)
+        if use_temp:
+            shutil.rmtree(workspace, ignore_errors=True)
 
 
 # 진행 중인 로그인 프로세스 (콜백 대기용)
@@ -120,6 +144,19 @@ async def run_login() -> str:
     proc.kill()
     await proc.communicate()
     raise RuntimeError(f"OAuth URL을 찾을 수 없습니다: {collected}")
+
+
+async def clear_workspace_sessions(workspace_dir: str):
+    """컨테이너 안의 워크스페이스 세션 데이터를 모두 삭제한다."""
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "exec", CONTAINER_NAME,
+        "sh", "-c",
+        "rm -rf /root/.claude/projects/*/sessions "
+        f"/workspace/{workspace_dir}/.claude",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await asyncio.wait_for(proc.communicate(), timeout=10)
 
 
 async def check_auth() -> dict:

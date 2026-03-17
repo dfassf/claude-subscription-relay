@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class Task:
-    __slots__ = ("task_id", "prompt", "system_prompt", "output_format", "timeout", "files", "status", "result", "error", "completed_at", "started_at", "duration", "on_complete")
+    __slots__ = ("task_id", "prompt", "system_prompt", "output_format", "timeout", "files", "status", "result", "error", "completed_at", "started_at", "duration", "on_complete", "resume_session", "session_id", "workspace_dir")
 
     def __init__(
         self,
@@ -37,6 +37,9 @@ class Task:
         self.completed_at: float | None = None
         self.duration: float | None = None
         self.on_complete: Callable[["Task"], Awaitable[None]] | None = None
+        self.resume_session: str | None = None
+        self.session_id: str | None = None
+        self.workspace_dir: str | None = None
 
 
 class QueueWorker:
@@ -53,13 +56,17 @@ class QueueWorker:
             task.status = TaskStatus.running
             task.started_at = time.time()
             try:
-                task.result = await run_claude(
+                result_text, session_id = await run_claude(
                     task.prompt,
                     system_prompt=task.system_prompt,
                     output_format=task.output_format,
                     timeout=task.timeout,
                     files=task.files,
+                    resume_session=task.resume_session,
+                    workspace_dir=task.workspace_dir,
                 )
+                task.result = result_text
+                task.session_id = session_id
                 task.status = TaskStatus.completed
             except Exception as e:
                 task.error = str(e)

@@ -5,6 +5,7 @@ import logging
 
 import httpx
 
+from app.claude_runner import clear_workspace_sessions
 from app.config import settings
 from app.queue_worker import Task, worker
 
@@ -20,6 +21,7 @@ class TelegramBot:
         self._base_url = TELEGRAM_API.format(token=token)
         self._offset = 0
         self._client: httpx.AsyncClient | None = None
+        self._session_id: str | None = None  # Claude 세션 유지용
 
     async def start(self):
         """Long-polling 루프 시작."""
@@ -76,11 +78,20 @@ class TelegramBot:
                     f"현재 작업: {worker.current_task_id or '없음'}",
                 )
                 return
+            if cmd == "/new":
+                self._session_id = None
+                try:
+                    await clear_workspace_sessions("telegram")
+                except Exception:
+                    logger.warning("세션 정리 실패")
+                await self._send_message(chat_id, "새 대화를 시작합니다.")
+                return
             if cmd in ("/start", "/help"):
                 await self._send_message(
                     chat_id,
                     "Claude on Cloud\n\n"
                     "메시지를 보내면 Claude가 답변합니다.\n"
+                    "/new - 새 대화 시작\n"
                     "/status - 큐 상태 확인",
                 )
                 return
@@ -92,9 +103,23 @@ class TelegramBot:
         await self._send_message(chat_id, "처리 중...")
 
         task = Task(prompt=prompt)
+        task.resume_session = self._session_id
+        task.workspace_dir = "telegram"
 
         async def on_complete(t: Task):
+            if t.session_id:
+                self._session_id = t.session_id
             if t.error:
+                # 세션을 못 찾으면 초기화 후 재시도
+                if "No conversation found" in (t.error or ""):
+                    self._session_id = None
+                    await self._send_message(chat_id, "세션 만료 — 새 대화로 재시도합니다.")
+                    retry = Task(prompt=prompt)
+                    retry.resume_session = None
+                    retry.workspace_dir = "telegram"
+                    retry.on_complete = on_complete
+                    worker.enqueue(retry)
+                    return
                 await self._send_message(chat_id, f"오류: {t.error}")
             else:
                 result = t.result or "(빈 응답)"
