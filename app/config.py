@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Claude OAuth 토큰 (직접 설정 or macOS Keychain 자동 추출)
-    claude_oauth_token: str = ""
+    claude_code_oauth_token: str = ""
 
     # 작업 디렉토리 (Docker 볼륨으로 API 서버 ↔ Claude 컨테이너 공유)
     workspace_base: str = "/workspace"
@@ -27,8 +27,8 @@ class Settings(BaseSettings):
 
     def get_oauth_token(self) -> str | None:
         """토큰 반환. 설정 안 되어 있으면 macOS Keychain 시도, 실패하면 None."""
-        if self.claude_oauth_token:
-            return self.claude_oauth_token
+        if self.claude_code_oauth_token:
+            return self.claude_code_oauth_token
         try:
             return self._extract_from_keychain()
         except Exception:
