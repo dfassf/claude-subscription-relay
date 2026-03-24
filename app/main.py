@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 
+from app import token_manager
 from app.claude_runner import check_auth, run_login
 from app.config import settings
 from app.queue_worker import Task, worker
@@ -23,14 +24,18 @@ async def verify_api_key(request: Request):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # workspace 베이스 디렉토리 생성
     Path(settings.workspace_base).mkdir(parents=True, exist_ok=True)
 
-    # 큐 워커 + 정리 루프 백그라운드 실행
+    # OAuth 토큰 매니저 초기화 + 백그라운드 갱신
+    token_manager.init(
+        access_token=settings.claude_code_oauth_token,
+        refresh_token=settings.claude_code_refresh_token,
+    )
+    refresh_task = asyncio.create_task(token_manager.refresh_loop())
+
     worker_task = asyncio.create_task(worker.start())
     cleanup_task = asyncio.create_task(worker.cleanup_loop())
 
-    # Telegram 봇 (설정이 있으면 시작)
     telegram_task = None
     tg_bot = get_bot()
     if tg_bot:
@@ -40,6 +45,7 @@ async def lifespan(app: FastAPI):
 
     if telegram_task:
         telegram_task.cancel()
+    refresh_task.cancel()
     worker_task.cancel()
     cleanup_task.cancel()
 

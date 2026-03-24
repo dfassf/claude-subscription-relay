@@ -8,11 +8,19 @@ from app.config import Settings
 from app.queue_worker import QueueWorker
 
 
+@pytest.fixture(autouse=True)
+def mock_token_manager(monkeypatch):
+    """token_manager를 모킹하여 실제 HTTP 호출 방지."""
+    monkeypatch.setattr("app.token_manager._access_token", "test-token")
+    monkeypatch.setattr("app.token_manager._refresh_token", "")
+    monkeypatch.setattr("app.token_manager._expires_at", float("inf"))
+
+
 @pytest.fixture()
 def fresh_settings(monkeypatch, tmp_path):
     """매 테스트마다 깨끗한 Settings 인스턴스를 사용한다."""
     s = Settings(
-        claude_oauth_token="test-token",
+        claude_code_oauth_token="test-token",
         workspace_base=str(tmp_path / "workspace"),
         claude_timeout=30,
         task_retention=10,
@@ -37,6 +45,6 @@ def fresh_worker(monkeypatch):
 def client(fresh_settings, fresh_worker):
     """FastAPI TestClient. run_claude는 모킹."""
     with patch("app.queue_worker.run_claude", new_callable=AsyncMock) as mock_run:
-        mock_run.return_value = "mocked response"
+        mock_run.return_value = ("mocked response", None)
         from app.main import app
         yield TestClient(app, raise_server_exceptions=False)

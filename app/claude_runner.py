@@ -1,11 +1,21 @@
 import asyncio
+import json
+import logging
 import shutil
 import tempfile
 from pathlib import Path
 
+from app import token_manager
 from app.config import settings
 
+logger = logging.getLogger(__name__)
+
 CONTAINER_NAME = "claude-sandbox"
+
+
+def _is_auth_error(msg: str) -> bool:
+    m = msg.lower()
+    return any(x in m for x in ("401", "unauthorized", "oauth", "expired", "authenticate"))
 
 
 async def run_claude(
@@ -21,9 +31,7 @@ async def run_claude(
     """상주 컨테이너에 docker exec로 Claude CLI를 실행하고 응답을 반환한다."""
 
     timeout = timeout or settings.claude_timeout
-    token = settings.get_oauth_token()
 
-    # 고정 workspace가 지정되면 사용, 아니면 임시 생성
     use_temp = workspace_dir is None
     if use_temp:
         workspace = Path(tempfile.mkdtemp(dir=settings.workspace_base))
@@ -33,7 +41,6 @@ async def run_claude(
     workspace_name = workspace.name
 
     try:
-        # 파일이 있으면 workspace에 복사하고 프롬프트에 경로 추가
         if files:
             file_names = []
             for f in files:
@@ -41,74 +48,81 @@ async def run_claude(
                 file_names.append(f"/workspace/{workspace_name}/{f.name}")
             prompt = f"다음 파일을 참고해서 답해줘: {', '.join(file_names)}\n\n{prompt}"
 
-        # 프롬프트를 파일로 저장 후 stdin으로 전달 (CLI 인자 노출 방지)
         prompt_file = workspace / ".prompt.txt"
         prompt_file.write_text(prompt, encoding="utf-8")
 
-        # docker exec 명령 조립
-        cmd = ["docker", "exec", "-i"]
-        if token:
-            cmd.extend(["-e", f"CLAUDE_CODE_OAUTH_TOKEN={token}"])
-        cmd.extend([
-            "-w", f"/workspace/{workspace_name}",
-            CONTAINER_NAME,
-            "claude", "-p", "-",
-            "--output-format", "json",
-        ])
+        for attempt in range(2):
+            token = await token_manager.get_token()
 
-        if resume_session:
-            cmd.extend(["--resume", resume_session])
+            cmd = ["docker", "exec", "-i"]
+            if token:
+                cmd.extend(["-e", f"CLAUDE_CODE_OAUTH_TOKEN={token}"])
+            cmd.extend([
+                "-w", f"/workspace/{workspace_name}",
+                CONTAINER_NAME,
+                "claude", "-p", "-",
+                "--output-format", "json",
+            ])
 
-        if system_prompt:
-            cmd.extend(["--system-prompt", system_prompt])
+            if resume_session:
+                cmd.extend(["--resume", resume_session])
+            if system_prompt:
+                cmd.extend(["--system-prompt", system_prompt])
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
 
-        stdout, stderr = await asyncio.wait_for(
-            proc.communicate(input=prompt.encode()), timeout=timeout
-        )
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(input=prompt.encode()), timeout=timeout
+            )
 
-        if proc.returncode != 0:
-            error_msg = stderr.decode().strip() or f"exit code {proc.returncode}"
-            raise RuntimeError(f"Claude 실행 실패: {error_msg}")
+            if proc.returncode != 0:
+                error_msg = stderr.decode().strip() or f"exit code {proc.returncode}"
+                # JSON 출력에서도 auth error 체크
+                try:
+                    data = json.loads(stdout.decode().strip())
+                    if data.get("is_error") and data.get("result"):
+                        error_msg = data["result"]
+                except (json.JSONDecodeError, TypeError):
+                    pass
 
-        raw = stdout.decode().strip()
+                if attempt == 0 and _is_auth_error(error_msg):
+                    logger.warning("인증 오류 감지, 토큰 갱신 후 재시도: %s", error_msg[:100])
+                    token_manager.force_expire()
+                    continue
+                raise RuntimeError(f"Claude 실행 실패: {error_msg}")
 
-        # JSON 출력에서 session_id와 결과 텍스트 추출
-        import json as _json
-        session_id = None
-        result_text = raw
-        try:
-            data = _json.loads(raw)
-            session_id = data.get("session_id")
-            result_text = data.get("result", raw)
-        except (_json.JSONDecodeError, TypeError):
-            pass
+            raw = stdout.decode().strip()
 
-        return result_text, session_id
+            session_id = None
+            result_text = raw
+            try:
+                data = json.loads(raw)
+                session_id = data.get("session_id")
+                result_text = data.get("result", raw)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            return result_text, session_id
 
     finally:
         if use_temp:
             shutil.rmtree(workspace, ignore_errors=True)
 
 
-# 진행 중인 로그인 프로세스 (콜백 대기용)
 _login_proc: asyncio.subprocess.Process | None = None
 
 
 async def run_login() -> str:
-    """컨테이너 안에서 claude auth login을 실행하고 OAuth URL을 반환한다.
-    프로세스는 백그라운드에서 콜백을 대기하며, 브라우저 인증 완료 시 자연 종료된다."""
+    """컨테이너 안에서 claude auth login을 실행하고 OAuth URL을 반환한다."""
     import re
 
     global _login_proc
 
-    # 이전 로그인 프로세스가 있으면 정리
     if _login_proc and _login_proc.returncode is None:
         _login_proc.kill()
         await _login_proc.communicate()
@@ -121,26 +135,20 @@ async def run_login() -> str:
     )
     _login_proc = proc
 
-    # stdout에서 한 줄씩 읽으면서 URL을 찾는다
-    # URL 출력 후 프로세스는 콜백 대기 상태로 남아있음
     collected = ""
     try:
         while True:
-            line = await asyncio.wait_for(
-                proc.stdout.readline(), timeout=15
-            )
+            line = await asyncio.wait_for(proc.stdout.readline(), timeout=15)
             if not line:
                 break
             decoded = line.decode().strip()
             collected += decoded + "\n"
             match = re.search(r"(https://claude\.ai/oauth/authorize\S+)", decoded)
             if match:
-                # URL을 찾았으면 반환 (프로세스는 백그라운드에서 콜백 대기)
                 return match.group(1)
     except asyncio.TimeoutError:
         pass
 
-    # URL을 못 찾았으면 프로세스 정리
     proc.kill()
     await proc.communicate()
     raise RuntimeError(f"OAuth URL을 찾을 수 없습니다: {collected}")
@@ -161,7 +169,7 @@ async def clear_workspace_sessions(workspace_dir: str):
 
 async def check_auth() -> dict:
     """컨테이너 안의 Claude 인증 상태를 확인한다."""
-    token = settings.get_oauth_token()
+    token = await token_manager.get_token()
 
     cmd = ["docker", "exec"]
     if token:
@@ -176,7 +184,6 @@ async def check_auth() -> dict:
 
     stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
 
-    import json
     try:
         return json.loads(stdout.decode().strip())
     except json.JSONDecodeError:

@@ -59,7 +59,7 @@ class TestQueueWorker:
         w.enqueue(t)
 
         with patch("app.queue_worker.run_claude", new_callable=AsyncMock) as mock:
-            mock.return_value = "response"
+            mock.return_value = ("response", None)
             task = asyncio.create_task(w.start())
             await asyncio.sleep(0.1)
             task.cancel()

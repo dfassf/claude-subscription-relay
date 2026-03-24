@@ -12,7 +12,7 @@ from app.schemas import TaskStatus
 @pytest.fixture()
 def setup(monkeypatch, tmp_path):
     s = Settings(
-        claude_oauth_token="tok",
+        claude_code_oauth_token="tok",
         workspace_base=str(tmp_path),
         api_key="",
     )

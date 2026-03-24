@@ -1,7 +1,6 @@
 import asyncio
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -24,9 +23,10 @@ class TestRunClaude:
 
         with patch("app.claude_runner.asyncio.create_subprocess_exec", return_value=proc):
             with patch("app.claude_runner.asyncio.wait_for", return_value=(b"Hello from Claude", b"")):
-                result = await run_claude("test prompt")
+                result_text, session_id = await run_claude("test prompt")
 
-        assert result == "Hello from Claude"
+        assert result_text == "Hello from Claude"
+        assert session_id is None
 
     @pytest.mark.asyncio
     async def test_raises_on_nonzero_exit(self, fresh_settings, tmp_path):
@@ -53,10 +53,9 @@ class TestRunClaude:
 
         with patch("app.claude_runner.asyncio.create_subprocess_exec", side_effect=capture_exec):
             with patch("app.claude_runner.asyncio.wait_for", return_value=(b"ok", b"")):
-                result = await run_claude("check file", files=[test_file])
+                result_text, _ = await run_claude("check file", files=[test_file])
 
-        assert result == "ok"
-        # 프롬프트에 파일 경로 포함 확인
+        assert result_text == "ok"
         cmd_str = " ".join(str(c) for c in captured_cmd)
         assert "/workspace/" in cmd_str
 
@@ -69,7 +68,6 @@ class TestRunClaude:
             with patch("app.claude_runner.asyncio.wait_for", return_value=(b"ok", b"")):
                 await run_claude("test")
 
-        # workspace_base 아래 임시 디렉토리가 정리되었는지 확인
         remaining = list(tmp_path.iterdir())
         assert len(remaining) == 0
 

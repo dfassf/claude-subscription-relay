@@ -10,8 +10,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # 작업 파일 공유
       - workspace:/workspace
+      # OAuth 토큰 영속 저장
+      - ./tokens:/run/tokens
     environment:
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
+      - CLAUDE_CODE_REFRESH_TOKEN=${CLAUDE_CODE_REFRESH_TOKEN:-}
       - API_KEY=${API_KEY:-}
       - WORKSPACE_BASE=/workspace
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
