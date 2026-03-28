@@ -19,6 +19,7 @@ REFRESH_MARGIN = 300  # 만료 5분 전에 갱신
 _access_token: str = ""
 _refresh_token: str = ""
 _expires_at: float = 0.0
+_refresh_dead: bool = False  # refresh token 무효화 시 재시도 중단
 _lock = asyncio.Lock()
 
 
@@ -40,13 +41,14 @@ def init(access_token: str, refresh_token: str):
 
     _access_token = access_token
     _refresh_token = refresh_token
-    # .env에서 로드한 토큰은 만료 시점을 모르므로 짧게 설정 → 바로 갱신 시도
-    _expires_at = time.time() + 60 if refresh_token else float("inf")
+    # .env에서 로드한 토큰은 만료 시점을 모르므로 무한대로 설정
+    # → 실제 만료 시 claude_runner의 force_expire()가 갱신 트리거
+    _expires_at = float("inf")
 
 
 async def get_token() -> str | None:
     """유효한 access_token 반환. 만료 임박 시 자동 갱신."""
-    if not _refresh_token:
+    if not _refresh_token or _refresh_dead:
         return _access_token or None
 
     if time.time() < _expires_at:
@@ -70,7 +72,7 @@ async def refresh_loop():
     """백그라운드: 1분마다 만료 체크, 선제적 갱신."""
     while True:
         await asyncio.sleep(60)
-        if not _refresh_token:
+        if not _refresh_token or _refresh_dead:
             continue
         if time.time() >= _expires_at:
             try:
@@ -83,7 +85,7 @@ async def refresh_loop():
 
 async def _do_refresh():
     """refresh_token으로 새 토큰 발급."""
-    global _access_token, _refresh_token, _expires_at
+    global _access_token, _refresh_token, _expires_at, _refresh_dead
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -96,6 +98,10 @@ async def _do_refresh():
             },
             timeout=15,
         )
+        if resp.status_code == 400:
+            logger.error("refresh token 무효화됨 (400). 재로그인 필요")
+            _refresh_dead = True
+            return
         resp.raise_for_status()
         data = resp.json()
 
