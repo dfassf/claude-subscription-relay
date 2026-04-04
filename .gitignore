@@ -14,3 +14,9 @@ wheels/
 
 # Workspace (임시 파일)
 workspace/
+
+# OAuth 토큰 영속 저장
+tokens/
+
+# pytest
+.pytest_cache/

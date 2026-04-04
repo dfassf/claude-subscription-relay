@@ -10,7 +10,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-OAUTH_ENDPOINT = "https://platform.claude.com/v1/oauth/token"
+OAUTH_ENDPOINT = "https://api.anthropic.com/v1/oauth/token"
 CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 SCOPE = "user:profile user:inference user:sessions:claude_code user:mcp_servers"
 TOKEN_FILE = Path("/run/tokens/oauth.json")
