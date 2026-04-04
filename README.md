@@ -104,8 +104,9 @@ curl http://서버주소:8000/auth -H "X-API-Key: <your-key>"
 `platform.claude.com`은 Cloudflare가 429로 차단합니다.
 `api.anthropic.com`을 사용해야 합니다.
 
-> **참고**: `.env`에 `CLAUDE_CODE_OAUTH_TOKEN`/`CLAUDE_CODE_REFRESH_TOKEN`을 설정하면
-> 폴백으로 사용됩니다. 하지만 컨테이너 독립 로그인이 권장됩니다.
+> **주의**: 이전에는 `.env`에 `CLAUDE_CODE_OAUTH_TOKEN`을 설정하여 폴백으로 사용했으나,
+> stale 토큰이 컨테이너 자체 credentials를 덮어쓰는 문제가 있어 제거했습니다.
+> 컨테이너 독립 로그인만 사용합니다.
 
 ## API
 
@@ -160,5 +161,5 @@ curl -X POST http://localhost:8000/ask \
 | `CLAUDE_TIMEOUT` | `120` | CLI 실행 타임아웃 (초) |
 | `TELEGRAM_BOT_TOKEN` | (없음) | Telegram 봇 토큰 |
 | `TELEGRAM_CHAT_ID` | `0` | Telegram 채팅 ID |
-| `CLAUDE_CODE_OAUTH_TOKEN` | (없음) | OAuth access token (폴백용) |
-| `CLAUDE_CODE_REFRESH_TOKEN` | (없음) | OAuth refresh token (폴백용) |
+| ~~`CLAUDE_CODE_OAUTH_TOKEN`~~ | — | 제거됨 (stale 토큰 문제) |
+| ~~`CLAUDE_CODE_REFRESH_TOKEN`~~ | — | 제거됨 (stale 토큰 문제) |

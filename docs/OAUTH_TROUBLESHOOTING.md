@@ -94,9 +94,42 @@ platform.claude.com/v1/oauth/token   → Cloudflare 429
 `.env`에 `CLAUDE_REFRESH_TOKEN`으로 설정했으나 코드는 `CLAUDE_CODE_REFRESH_TOKEN`을 기대.
 같은 유형의 실수가 2회 반복됨.
 
+## 시도 4: 배포 후 API 서버 401 오류
+
+컨테이너 독립 인증 설정 후, 직접 `docker exec`로 Claude CLI를 실행하면 정상 동작하지만
+API 서버(`/ask`)를 경유하면 401 `Invalid authentication credentials`가 발생했다.
+
+### 원인: stale 환경변수가 컨테이너 credentials를 덮어씀
+
+`docker-compose.yml`에 `CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}`가 있었고,
+VM의 `.env`에 이전에 설정해둔 stale 토큰 값이 남아있었다.
+
+흐름:
+1. `.env`의 stale 토큰 → `docker-compose.yml` → API 컨테이너 환경변수
+2. `config.py` → `token_manager.init(stale_token)` → `get_token()` returns stale token
+3. `claude_runner.py`가 `-e CLAUDE_CODE_OAUTH_TOKEN=<stale>` 로 sandbox에 전달
+4. sandbox의 유효한 `/root/.claude/.credentials.json`이 환경변수에 의해 덮어씀 → 401
+
+### 추가 함정: `docker compose restart`는 `.env`를 다시 읽지 않음
+
+`.env`에서 stale 값을 제거하고 `docker compose restart api`를 해도,
+이미 실행 중인 컨테이너의 환경변수는 변경되지 않는다.
+`docker exec claude-relay-api env`로 확인하면 여전히 이전 값이 보인다.
+
+→ `docker compose up -d --force-recreate api` (컨테이너 재생성)가 필요하다.
+
+### 해결
+
+`docker-compose.yml`에서 `CLAUDE_CODE_OAUTH_TOKEN`과 `CLAUDE_CODE_REFRESH_TOKEN`을
+완전히 제거했다. 컨테이너 독립 인증을 사용하므로 API 서버가 토큰을 전달할 필요가 없다.
+
+`token_manager.init("")` → `get_token()` returns `None` →
+`claude_runner`가 `-e` 플래그를 생략 → sandbox가 자체 credentials 사용.
+
 ## 최종 구성
 
 1. 컨테이너: `claude auth logout` → 수동 PKCE로 독립 OAuth 세션 설정
 2. credential: `/root/.claude/.credentials.json`에 직접 작성 (Docker 영속 볼륨)
 3. 토큰 갱신: `token_manager.py`가 `api.anthropic.com`으로 갱신 (폴백용)
-4. 로컬 Claude Code와 완전 독립 — 토큰 회전 충돌 없음
+4. `docker-compose.yml`에서 OAuth 환경변수 제거 — stale 토큰 전달 차단
+5. 로컬 Claude Code와 완전 독립 — 토큰 회전 충돌 없음
