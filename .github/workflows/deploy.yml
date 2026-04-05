@@ -8,6 +8,16 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: 배포 시작 알림
+        uses: appleboy/telegram-action@v1
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: |
+            🚀 배포 시작
+            커밋: ${{ github.event.head_commit.message }}
+            by ${{ github.actor }}
+
       - name: Deploy to VM
         uses: appleboy/ssh-action@v1
         with:
@@ -15,6 +25,22 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd ~/claude-subscription-relay
+            cd ~/claude-docker-sandbox
             git pull
             docker compose up -d --build
+
+      - name: 배포 완료 알림
+        if: success()
+        uses: appleboy/telegram-action@v1
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: "✅ 배포 완료"
+
+      - name: 배포 실패 알림
+        if: failure()
+        uses: appleboy/telegram-action@v1
+        with:
+          to: ${{ secrets.TELEGRAM_CHAT_ID }}
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          message: "❌ 배포 실패 — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
