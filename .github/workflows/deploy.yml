@@ -13,10 +13,7 @@ jobs:
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          message: |
-            🚀 배포 시작
-            커밋: ${{ github.event.head_commit.message }}
-            by ${{ github.actor }}
+          message: "클로드 샌드박스 배포 시작합니다.."
 
       - name: Deploy to VM
         uses: appleboy/ssh-action@v1
@@ -36,7 +33,7 @@ jobs:
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          message: "✅ 배포 완료"
+          message: "클로드 샌드박스 배포 성공!"
 
       - name: 배포 실패 알림
         if: failure()
@@ -44,4 +41,4 @@ jobs:
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          message: "❌ 배포 실패 — ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          message: "클로드 샌드박스 배포 실패🥲"
