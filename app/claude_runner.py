@@ -11,6 +11,7 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 CONTAINER_NAME = "claude-sandbox"
+INSTRUCTIONS_FILE = Path("context/instructions.md")
 
 
 def _is_auth_error(msg: str) -> bool:
@@ -31,6 +32,15 @@ async def run_claude(
     """상주 컨테이너에 docker exec로 Claude CLI를 실행하고 응답을 반환한다."""
 
     timeout = timeout or settings.claude_timeout
+
+    # instructions.md를 system prompt 베이스로 사용
+    base_prompt = ""
+    if INSTRUCTIONS_FILE.exists():
+        base_prompt = INSTRUCTIONS_FILE.read_text().strip()
+    if base_prompt and system_prompt:
+        system_prompt = f"{base_prompt}\n\n---\n\n{system_prompt}"
+    elif base_prompt:
+        system_prompt = base_prompt
 
     use_temp = workspace_dir is None
     if use_temp:

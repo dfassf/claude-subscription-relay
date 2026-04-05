@@ -12,6 +12,8 @@ services:
       - workspace:/workspace
       # OAuth 토큰 영속 저장
       - ./tokens:/run/tokens
+      # 지침 파일 읽기
+      - ./context:/app/context:ro
     environment:
       - API_KEY=${API_KEY:-}
       - WORKSPACE_BASE=/workspace
@@ -30,6 +32,8 @@ services:
       - claude-creds:/root/.claude
       # 작업 파일 공유
       - workspace:/workspace
+      # 지침 + 메모리 (호스트에서 편집 가능)
+      - ./context:/workspace/.context
     restart: unless-stopped
     deploy:
       resources:
