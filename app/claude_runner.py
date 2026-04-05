@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import shutil
 import tempfile
 from pathlib import Path
@@ -12,6 +13,8 @@ logger = logging.getLogger(__name__)
 
 CONTAINER_NAME = "claude-sandbox"
 INSTRUCTIONS_FILE = Path("context/instructions.md")
+MEMORY_FILE = Path("context/memory.md")
+MEMORY_TAG_RE = re.compile(r"<memory>(.*?)</memory>", re.DOTALL)
 
 
 def _is_auth_error(msg: str) -> bool:
@@ -33,10 +36,12 @@ async def run_claude(
 
     timeout = timeout or settings.claude_timeout
 
-    # instructions.md를 system prompt 베이스로 사용
+    # instructions.md + memory.md를 system prompt로 조립
     base_prompt = ""
     if INSTRUCTIONS_FILE.exists():
         base_prompt = INSTRUCTIONS_FILE.read_text().strip()
+        memory = MEMORY_FILE.read_text().strip() if MEMORY_FILE.exists() else "(없음)"
+        base_prompt = base_prompt.replace("{{MEMORY}}", memory)
     if base_prompt and system_prompt:
         system_prompt = f"{base_prompt}\n\n---\n\n{system_prompt}"
     elif base_prompt:
@@ -116,6 +121,15 @@ async def run_claude(
                 result_text = data.get("result", raw)
             except (json.JSONDecodeError, TypeError):
                 pass
+
+            # <memory> 태그 파싱 → memory.md에 저장
+            memories = MEMORY_TAG_RE.findall(result_text)
+            if memories:
+                with open(MEMORY_FILE, "a", encoding="utf-8") as f:
+                    for mem in memories:
+                        f.write(f"\n{mem.strip()}\n")
+                logger.info("메모리 %d건 저장", len(memories))
+                result_text = MEMORY_TAG_RE.sub("", result_text).strip()
 
             return result_text, session_id
 
