@@ -167,6 +167,20 @@ async def clear_workspace_sessions(workspace_dir: str):
     await asyncio.wait_for(proc.communicate(), timeout=10)
 
 
+async def clear_all_sessions():
+    """컨테이너의 모든 Claude 대화 세션을 삭제한다."""
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "exec", CONTAINER_NAME,
+        "sh", "-c",
+        "rm -rf /root/.claude/projects/*/sessions /root/.claude/.sessions",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await asyncio.wait_for(proc.communicate(), timeout=10)
+    if proc.returncode != 0:
+        raise RuntimeError("세션 삭제 실패")
+
+
 async def check_auth() -> dict:
     """컨테이너 안의 Claude 인증 상태를 확인한다."""
     token = await token_manager.get_token()

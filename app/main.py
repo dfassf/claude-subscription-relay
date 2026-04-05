@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 
 from app import token_manager
-from app.claude_runner import check_auth, run_login
+from app.claude_runner import check_auth, clear_all_sessions, run_login
 from app.config import settings
 from app.queue_worker import Task, worker
 from app.schemas import AskRequest, AskResponse, HealthResponse, TaskResult
@@ -67,6 +67,16 @@ async def login():
 async def auth():
     """컨테이너의 Claude 인증 상태를 확인한다."""
     return await check_auth()
+
+
+@app.post("/sessions/clear", dependencies=[Depends(verify_api_key)])
+async def sessions_clear():
+    """모든 대화 세션을 삭제하고 새 대화를 시작할 수 있게 한다."""
+    try:
+        await clear_all_sessions()
+        return {"message": "모든 세션이 초기화되었습니다."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/ask", response_model=AskResponse, dependencies=[Depends(verify_api_key)])

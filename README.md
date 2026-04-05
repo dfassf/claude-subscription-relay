@@ -114,6 +114,7 @@ curl http://서버주소:8000/auth -H "X-API-Key: <your-key>"
 |--------|------|------|
 | `POST` | `/login` | OAuth URL 반환 |
 | `GET` | `/auth` | 인증 상태 확인 |
+| `POST` | `/sessions/clear` | 대화 세션 초기화 |
 | `POST` | `/ask` | 텍스트 프롬프트 |
 | `POST` | `/ask/file` | 파일 + 프롬프트 |
 | `GET` | `/task/{id}` | 작업 결과 조회 |
