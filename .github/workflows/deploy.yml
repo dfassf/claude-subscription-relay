@@ -25,8 +25,9 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            cd ~/claude-docker-sandbox
-            git pull
+            cd ~/claude-subscription-relay
+            git fetch origin
+            git reset --hard origin/main
             docker compose up -d --build
 
       - name: 배포 완료 알림
