@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 배포 시작 알림
-        uses: appleboy/telegram-action@v1
+        uses: appleboy/telegram-action@master
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -31,7 +31,7 @@ jobs:
 
       - name: 배포 완료 알림
         if: success()
-        uses: appleboy/telegram-action@v1
+        uses: appleboy/telegram-action@master
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -39,7 +39,7 @@ jobs:
 
       - name: 배포 실패 알림
         if: failure()
-        uses: appleboy/telegram-action@v1
+        uses: appleboy/telegram-action@master
         with:
           to: ${{ secrets.TELEGRAM_CHAT_ID }}
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
