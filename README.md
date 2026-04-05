@@ -104,9 +104,7 @@ curl http://서버주소:8000/auth -H "X-API-Key: <your-key>"
 `platform.claude.com`은 Cloudflare가 429로 차단합니다.
 `api.anthropic.com`을 사용해야 합니다.
 
-> **주의**: 이전에는 `.env`에 `CLAUDE_CODE_OAUTH_TOKEN`을 설정하여 폴백으로 사용했으나,
-> stale 토큰이 컨테이너 자체 credentials를 덮어쓰는 문제가 있어 제거했습니다.
-> 컨테이너 독립 로그인만 사용합니다.
+> **주의**: `.env`에 OAuth 토큰을 직접 넣지 마세요. stale 토큰이 컨테이너 credentials를 덮어쓸 수 있습니다.
 
 ## API
 
@@ -162,5 +160,32 @@ curl -X POST http://localhost:8000/ask \
 | `CLAUDE_TIMEOUT` | `120` | CLI 실행 타임아웃 (초) |
 | `TELEGRAM_BOT_TOKEN` | (없음) | Telegram 봇 토큰 |
 | `TELEGRAM_CHAT_ID` | `0` | Telegram 채팅 ID |
-| ~~`CLAUDE_CODE_OAUTH_TOKEN`~~ | — | 제거됨 (stale 토큰 문제) |
-| ~~`CLAUDE_CODE_REFRESH_TOKEN`~~ | — | 제거됨 (stale 토큰 문제) |
+
+## 삽질 기록
+
+Docker 컨테이너에 독립 OAuth 세션을 설정하면서 겪은 주요 문제들.
+
+### `claude auth login` stdin 문제
+
+컨테이너에서 `claude auth login` 실행 시 OAuth URL은 나오지만, 인증 코드를 stdin으로 전달할 수 없다.
+tmux send-keys, named pipe, coproc 등 모두 실패. CLI가 stdin을 읽는 방식이 pipe/redirect와 호환되지 않음.
+→ CLI를 우회하여 수동 PKCE 플로우로 해결.
+
+### 토큰 교환 시 Cloudflare 429 차단
+
+`console.anthropic.com`과 `platform.claude.com`의 `/v1/oauth/token`은
+비공식 클라이언트(curl 등)를 Cloudflare가 429로 차단한다. IP가 아닌 클라이언트 fingerprinting 기반.
+→ `api.anthropic.com/v1/oauth/token`은 차단 없이 작동.
+
+### 토큰 교환 400 오류
+
+`redirect_uri`가 `platform.claude.com`이 아닌 `console.anthropic.com`이어야 하고,
+요청 바디에 `state` 필드가 필수. 429에 가려져서 디버깅이 늦어짐.
+
+### API 서버 경유 시 401
+
+컨테이너 자체 credentials는 유효한데 API 경유 시 401 발생.
+`docker-compose.yml`에서 `.env`의 stale OAuth 토큰을 환경변수로 전달하고 있었고,
+이게 컨테이너 credentials를 덮어씀. `docker compose restart`는 `.env`를 다시 읽지 않으므로
+`docker compose up -d --force-recreate`가 필요.
+→ `docker-compose.yml`에서 OAuth 환경변수 자체를 제거하여 해결.
