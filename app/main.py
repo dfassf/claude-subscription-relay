@@ -22,6 +22,57 @@ async def verify_api_key(request: Request):
         raise HTTPException(status_code=401, detail="Invalid API key")
 
 
+def _build_task(
+    *,
+    prompt: str,
+    system_prompt: str | None = None,
+    output_format: str = "text",
+    timeout: int | None = None,
+    files: list[Path] | None = None,
+    cleanup_dir: Path | None = None,
+) -> Task:
+    return Task(
+        prompt=prompt,
+        system_prompt=system_prompt,
+        output_format=output_format,
+        timeout=timeout,
+        files=files,
+        cleanup_dir=cleanup_dir,
+    )
+
+
+def _build_upload_path(upload_dir: Path, filename: str | None, index: int) -> Path:
+    safe_name = Path(filename or f"upload-{index}").name or f"upload-{index}"
+    candidate = upload_dir / safe_name
+    if not candidate.exists():
+        return candidate
+
+    stem = candidate.stem or f"upload-{index}"
+    suffix = candidate.suffix
+    duplicate_index = 2
+    while True:
+        duplicate = upload_dir / f"{stem}-{duplicate_index}{suffix}"
+        if not duplicate.exists():
+            return duplicate
+        duplicate_index += 1
+
+
+async def _save_upload_files(files: list[UploadFile]) -> tuple[Path, list[Path]]:
+    upload_dir = Path(tempfile.mkdtemp())
+    saved_paths: list[Path] = []
+
+    try:
+        for index, upload in enumerate(files, start=1):
+            dest = _build_upload_path(upload_dir, upload.filename, index)
+            dest.write_bytes(await upload.read())
+            saved_paths.append(dest)
+    except Exception:
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        raise
+
+    return upload_dir, saved_paths
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Path(settings.workspace_base).mkdir(parents=True, exist_ok=True)
@@ -82,7 +133,7 @@ async def sessions_clear():
 @app.post("/ask", response_model=AskResponse, dependencies=[Depends(verify_api_key)])
 async def ask(req: AskRequest):
     """텍스트 프롬프트를 큐에 넣고 task_id를 반환한다."""
-    task = Task(
+    task = _build_task(
         prompt=req.prompt,
         system_prompt=req.system_prompt,
         output_format=req.output_format,
@@ -101,25 +152,14 @@ async def ask_with_file(
     files: list[UploadFile] = File(...),
 ):
     """파일과 함께 프롬프트를 큐에 넣는다."""
-    tmp_dir = Path(tempfile.mkdtemp())
-    saved_paths: list[Path] = []
-    try:
-        for f in files:
-            dest = tmp_dir / f.filename
-            with open(dest, "wb") as out:
-                content = await f.read()
-                out.write(content)
-            saved_paths.append(dest)
-    except Exception:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        raise
-
-    task = Task(
+    upload_dir, saved_paths = await _save_upload_files(files)
+    task = _build_task(
         prompt=prompt,
         system_prompt=system_prompt,
         output_format=output_format,
         timeout=timeout,
         files=saved_paths,
+        cleanup_dir=upload_dir,
     )
     worker.enqueue(task)
     return AskResponse(task_id=task.task_id)

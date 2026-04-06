@@ -1,8 +1,10 @@
 import asyncio
 import logging
+import shutil
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.claude_runner import run_claude
@@ -12,34 +14,39 @@ from app.schemas import TaskStatus
 logger = logging.getLogger(__name__)
 
 
-class Task:
-    __slots__ = ("task_id", "prompt", "system_prompt", "output_format", "timeout", "files", "status", "result", "error", "completed_at", "started_at", "duration", "on_complete", "resume_session", "session_id", "workspace_dir")
+def _new_task_id() -> str:
+    return uuid.uuid4().hex[:12]
 
-    def __init__(
-        self,
-        prompt: str,
-        *,
-        system_prompt: str | None = None,
-        output_format: str = "text",
-        timeout: int | None = None,
-        files: list[Path] | None = None,
-    ):
-        self.task_id = uuid.uuid4().hex[:12]
-        self.prompt = prompt
-        self.system_prompt = system_prompt
-        self.output_format = output_format
-        self.timeout = timeout
-        self.files = files
-        self.status = TaskStatus.queued
-        self.result: str | None = None
-        self.error: str | None = None
-        self.started_at: float | None = None
-        self.completed_at: float | None = None
-        self.duration: float | None = None
-        self.on_complete: Callable[["Task"], Awaitable[None]] | None = None
-        self.resume_session: str | None = None
-        self.session_id: str | None = None
-        self.workspace_dir: str | None = None
+
+TaskCallback = Callable[["Task"], Awaitable[None]]
+
+
+@dataclass(slots=True)
+class Task:
+    prompt: str
+    system_prompt: str | None = None
+    output_format: str = "text"
+    timeout: int | None = None
+    files: list[Path] | None = None
+    task_id: str = field(default_factory=_new_task_id)
+    status: TaskStatus = TaskStatus.queued
+    result: str | None = None
+    error: str | None = None
+    completed_at: float | None = None
+    started_at: float | None = None
+    duration: float | None = None
+    on_complete: TaskCallback | None = None
+    resume_session: str | None = None
+    session_id: str | None = None
+    workspace_dir: str | None = None
+    cleanup_dir: Path | None = None
+
+    def cleanup(self):
+        if not self.cleanup_dir:
+            return
+
+        shutil.rmtree(self.cleanup_dir, ignore_errors=True)
+        self.cleanup_dir = None
 
 
 class QueueWorker:
@@ -80,6 +87,10 @@ class QueueWorker:
                         await task.on_complete(task)
                     except Exception as e:
                         logger.error("Task callback 실패: %s", e)
+                try:
+                    task.cleanup()
+                except Exception as e:
+                    logger.warning("Task 정리 실패: %s", e)
                 self._queue.task_done()
 
     async def cleanup_loop(self):

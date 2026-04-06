@@ -1,6 +1,7 @@
 import asyncio
+import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -8,10 +9,10 @@ from app.claude_runner import check_auth, run_claude, run_login
 
 
 def _make_proc(stdout=b"", stderr=b"", returncode=0):
-    proc = AsyncMock()
+    proc = Mock()
     proc.communicate = AsyncMock(return_value=(stdout, stderr))
     proc.returncode = returncode
-    proc.stdout = AsyncMock()
+    proc.stdout = Mock()
     return proc
 
 
@@ -71,6 +72,38 @@ class TestRunClaude:
         remaining = list(tmp_path.iterdir())
         assert len(remaining) == 0
 
+    @pytest.mark.asyncio
+    async def test_json_output_returns_serialized_payload(self, fresh_settings, tmp_path):
+        fresh_settings.workspace_base = str(tmp_path)
+        payload = b'{"session_id": "sess-1", "result": "{\\"ok\\": true}"}'
+        proc = _make_proc(stdout=payload)
+
+        with patch("app.claude_runner.asyncio.create_subprocess_exec", return_value=proc):
+            with patch("app.claude_runner.asyncio.wait_for", return_value=(payload, b"")):
+                result_text, session_id = await run_claude("json prompt", output_format="json")
+
+        assert session_id == "sess-1"
+        assert json.loads(result_text) == {
+            "session_id": "sess-1",
+            "result": '{"ok": true}',
+        }
+
+    @pytest.mark.asyncio
+    async def test_strips_memory_tags_and_persists_memory(self, fresh_settings, tmp_path, monkeypatch):
+        fresh_settings.workspace_base = str(tmp_path)
+        memory_file = tmp_path / "memory.md"
+        payload = b'{"result": "answer<memory>remember this</memory>"}'
+        proc = _make_proc(stdout=payload)
+
+        monkeypatch.setattr("app.claude_runner.MEMORY_FILE", memory_file)
+
+        with patch("app.claude_runner.asyncio.create_subprocess_exec", return_value=proc):
+            with patch("app.claude_runner.asyncio.wait_for", return_value=(payload, b"")):
+                result_text, _ = await run_claude("test prompt")
+
+        assert result_text == "answer"
+        assert memory_file.read_text(encoding="utf-8").strip() == "remember this"
+
 
 class TestCheckAuth:
     @pytest.mark.asyncio
@@ -109,11 +142,11 @@ class TestRunLogin:
         url = "https://claude.ai/oauth/authorize?code=abc123"
         line_bytes = f"Open this URL: {url}\n".encode()
 
-        proc = AsyncMock()
+        proc = Mock()
         proc.returncode = None
-        proc.stdout = AsyncMock()
+        proc.stdout = Mock()
         proc.stdout.readline = AsyncMock(side_effect=[line_bytes])
-        proc.kill = AsyncMock()
+        proc.kill = Mock()
         proc.communicate = AsyncMock()
 
         async def fake_wait_for(coro, *, timeout=None):
@@ -127,11 +160,11 @@ class TestRunLogin:
 
     @pytest.mark.asyncio
     async def test_raises_when_no_url_found(self):
-        proc = AsyncMock()
+        proc = Mock()
         proc.returncode = None
-        proc.stdout = AsyncMock()
+        proc.stdout = Mock()
         proc.stdout.readline = AsyncMock(return_value=b"")
-        proc.kill = AsyncMock()
+        proc.kill = Mock()
         proc.communicate = AsyncMock()
 
         async def fake_wait_for(coro, *, timeout=None):

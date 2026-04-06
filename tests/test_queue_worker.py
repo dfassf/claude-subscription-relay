@@ -85,6 +85,26 @@ class TestQueueWorker:
         assert t.duration is not None
 
     @pytest.mark.asyncio
+    async def test_start_cleans_up_task_files(self, tmp_path):
+        w = QueueWorker()
+        cleanup_dir = tmp_path / "uploads"
+        cleanup_dir.mkdir()
+        (cleanup_dir / "sample.txt").write_text("hello")
+
+        t = Task(prompt="hello")
+        t.cleanup_dir = cleanup_dir
+        w.enqueue(t)
+
+        with patch("app.queue_worker.run_claude", new_callable=AsyncMock) as mock:
+            mock.return_value = ("response", None)
+            task = asyncio.create_task(w.start())
+            await asyncio.sleep(0.1)
+            task.cancel()
+
+        assert not cleanup_dir.exists()
+        assert t.cleanup_dir is None
+
+    @pytest.mark.asyncio
     async def test_cleanup_removes_expired(self, monkeypatch):
         w = QueueWorker()
         t = Task(prompt="old")

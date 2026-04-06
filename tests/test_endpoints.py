@@ -56,6 +56,49 @@ class TestAskEndpoint:
         assert resp.status_code == 422
 
 
+class TestAskWithFileEndpoint:
+    def test_sanitizes_uploaded_filename(self, setup):
+        _, w = setup
+        client = TestClient(app, raise_server_exceptions=False)
+
+        resp = client.post(
+            "/ask/file",
+            data={"prompt": "hello"},
+            files=[("files", ("../../evil.txt", b"payload", "text/plain"))],
+        )
+
+        assert resp.status_code == 200
+
+        task = next(iter(w._tasks.values()))
+        assert task.files is not None
+        assert task.cleanup_dir is not None
+        assert task.files[0].name == "evil.txt"
+        assert task.files[0].parent == task.cleanup_dir
+
+        task.cleanup()
+
+    def test_keeps_duplicate_upload_names_distinct(self, setup):
+        _, w = setup
+        client = TestClient(app, raise_server_exceptions=False)
+
+        resp = client.post(
+            "/ask/file",
+            data={"prompt": "hello"},
+            files=[
+                ("files", ("same.txt", b"first", "text/plain")),
+                ("files", ("same.txt", b"second", "text/plain")),
+            ],
+        )
+
+        assert resp.status_code == 200
+
+        task = next(iter(w._tasks.values()))
+        assert task.files is not None
+        assert [path.name for path in task.files] == ["same.txt", "same-2.txt"]
+
+        task.cleanup()
+
+
 class TestTaskEndpoint:
     def test_returns_task_status(self, setup):
         _, w = setup
